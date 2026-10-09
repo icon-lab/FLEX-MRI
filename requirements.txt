@@ -1,0 +1,12 @@
+# Tested with Python 3.13 and the versions noted below.
+torch>=2.0          # tested 2.11
+numpy               # tested 2.4
+h5py                # tested 3.16
+sigpy               # tested 0.1.27 (ESPIRiT coil maps)
+scikit-image        # tested 0.26 (evaluate.py)
+matplotlib          # tested 3.10
+tqdm                # tested 4.67
+
+# Optional: GPU ESPIRiT in precompute_coil_maps.py. Install the build that
+# matches your CUDA version, e.g.
+#   pip install cupy-cuda12x
