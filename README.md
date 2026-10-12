@@ -1,36 +1,33 @@
 # FLEX-MRI
 
-Official PyTorch implementation of FLEX-MRI as described in the
-[paper](https://arxiv.org/abs/2610.13095).
-
-Muhammad Usama Mirza, Esin Öztürk Işık, Tolga Çukur, "Stochastic Finite-Transition
-Learning and Exploration for Accelerated MRI Reconstruction", arXiv 2026.
+**Stochastic Finite-Transition Learning and Exploration for Accelerated MRI
+Reconstruction**
 
 <img src="./figures/flex_mri_overview.png" width="800px">
 
-Generative MRI reconstruction maps an initial source distribution to the target
-image distribution along a learned recovery trajectory. Common generative
-methods, such as diffusion and flow, typically learn fine-grained local dynamics
-whose integration defines this global mapping, hence requiring many network
-evaluations at inference. Existing few-step sampling approaches can lower
-computational burden by approximating large transformations from local dynamics,
-albeit at the expense of reconstruction fidelity. FLEX-MRI instead partitions
-recovery into a small number of finite intervals between retained states defined
-by progressive changes in k-space support, and directly learns the
-reconstruction change across each interval. Because such finite transitions can
-admit multiple plausible outcomes, FLEX-MRI combines support-relaxed
-finite-transition learning with stochastic exploration. During training,
-randomized k-space sampling masks define finite-transition targets with varying
-support, while the prediction loss remains unrestricted by each individual mask.
-At inference, FLEX-MRI perturbs a random subset of currently estimated k-space
-coefficients, allowing the learned predictor to stochastically explore
-alternative transition paths. Each predicted state is then reconciled with the
-acquired measurements through data consistency. We theoretically show that this
-stochastic exploration induces nonzero transition-level variation through the
-learned recovery map and data consistency without requiring an auxiliary
-generative sampler. Experiments on multi-coil MRI datasets show that FLEX-MRI
-outperforms competing methods while maintaining computational efficiency
-comparable to few-step baselines.
+Generative MRI reconstruction depends critically on the recovery trajectory
+formed by successive transitions that map reconstruction states from an initial
+source toward the target image. Prominent diffusion models realize recovery
+through many stochastic fine-transitions, resulting in substantial inference
+cost that hampers practicality. Few-step generative methods reduce this burden
+by using far fewer states, requiring each retained transition to account for a
+larger portion of the trajectory. However, existing approaches either model
+these finite-transitions deterministically, limiting opportunities to refine
+uncertain estimates, or introduce auxiliary generative models to recover
+transition-level variation at increased computational cost. Here we introduce
+FLEX-MRI, a physics-guided finite-transition method that performs recovery
+through task-aligned intermediate states defined by progressive k-space
+undersampling. During training, the finite-transition predictor learns to impute
+different random selections of unacquired coefficients rather than a fixed
+sampling pattern. At inference, FLEX-MRI perturbs a random subset of currently
+estimated k-space coefficients, allowing the learned predictor to stochastically
+explore alternative transition paths. Each predicted state is then reconciled
+with the acquired measurements through data consistency. We theoretically show
+that this stochastic exploration propagates nonzero variation through the
+recovery trajectory, inducing transition-level variation without requiring an
+auxiliary generative sampler. Experiments demonstrate a favorable
+fidelity--efficiency trade-off against state-of-the-art generative
+reconstruction methods.
 
 ## Where the method lives
 
@@ -105,7 +102,7 @@ ESPIRiT device (`auto`, `cpu`, `cuda:N`; GPU needs `cupy`).
 ## Training
 
 ```bash
-bash train.sh /path/to/M4Raw/
+./train.sh /path/to/M4Raw/
 ```
 
 Checkpoints are written to `exp/` every 25,000 iterations. The configuration:
@@ -130,7 +127,7 @@ run: weights, EMA, optimizer state and step count.
 ## Reconstruction
 
 ```bash
-bash test.sh /path/to/M4Raw/ exp/model125000.pt
+./test.sh /path/to/M4Raw/ exp/model125000.pt
 ```
 
 `test.sh` sweeps `R_VALUES` (default `2 4 6 8`) x `CONTRASTS` (default
@@ -170,22 +167,6 @@ utils/
   script_util.py         model / transition construction from arguments
   kspace_dataset.py      training slices -> batches
   logger.py, nn.py, fp16_util.py, dist_util.py
-```
-
-## Citation
-
-You are encouraged to modify/distribute this code. However, please acknowledge
-this code and cite the paper appropriately.
-
-```bibtex
-@misc{mirza2026stochastic,
-      title={Stochastic Finite-Transition Learning and Exploration for Accelerated MRI Reconstruction},
-      author={Muhammad Usama Mirza and Esin Öztürk Işık and Tolga Çukur},
-      year={2026},
-      eprint={2610.13095},
-      archivePrefix={arXiv},
-      primaryClass={eess.IV}
-}
 ```
 
 ## Acknowledgements
