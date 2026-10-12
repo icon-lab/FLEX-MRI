@@ -105,7 +105,7 @@ ESPIRiT device (`auto`, `cpu`, `cuda:N`; GPU needs `cupy`).
 ## Training
 
 ```bash
-./train.sh /path/to/M4Raw/
+bash train.sh /path/to/M4Raw/
 ```
 
 Checkpoints are written to `exp/` every 25,000 iterations. The configuration:
@@ -130,7 +130,7 @@ run: weights, EMA, optimizer state and step count.
 ## Reconstruction
 
 ```bash
-./test.sh /path/to/M4Raw/ exp/model125000.pt
+bash test.sh /path/to/M4Raw/ exp/model125000.pt
 ```
 
 `test.sh` sweeps `R_VALUES` (default `2 4 6 8`) x `CONTRASTS` (default
