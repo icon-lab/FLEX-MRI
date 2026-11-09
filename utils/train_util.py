@@ -268,8 +268,8 @@ class TrainLoop:
                 filename = f"ema_{rate}_{step:06d}.pt"
             th.save(state_dict, os.path.join(logger.get_dir(), filename))
 
-        # Save the raw weights as well as the EMA: at ema_rate 0.9999 the
-        # average lags about 7k iterations behind the weights.
+        # Save the EMA weights (used for reconstruction) and the raw weights
+        # (used with the optimizer state to resume training).
         save_checkpoint(0, self.master_params)
         for rate, params in zip(self.ema_rate, self.ema_params):
             save_checkpoint(rate, params)
