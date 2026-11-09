@@ -24,7 +24,7 @@ PYTHON="${PYTHON:-python}"
 SAVE_DIR="${SAVE_DIR:-exp}"
 CONTRAST="${CONTRAST:-all}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
-BATCH_SIZE="${BATCH_SIZE:-2}"
+BATCH_SIZE="${BATCH_SIZE:-1}"
 STEPS="${STEPS:-125000}"
 SAVE_INTERVAL="${SAVE_INTERVAL:-25000}"
 LOG_INTERVAL="${LOG_INTERVAL:-1000}"
@@ -33,11 +33,17 @@ IMAGE_SIZE="${IMAGE_SIZE:-256}"
 NUM_CHANNELS="${NUM_CHANNELS:-128}"
 NUM_RES_BLOCKS="${NUM_RES_BLOCKS:-3}"
 DROPOUT="${DROPOUT:-0.3}"
-# Must match test.sh: t indexes a point on the training trajectory, so a
-# different count at sampling changes what every t means.
+# J retained finite transitions between the endpoint state (acceleration
+# ENDPOINT_R) and the fully sampled image. Must match test.sh: the thresholds
+# nu_t = t/J that define the states depend on J.
 TRANSITION_STEPS="${TRANSITION_STEPS:-10}"
-# Every sample is undersampled with a fresh mask at an acceleration in
-# [R_MIN, R_MAX], using the same generator test.sh sweeps over.
+ENDPOINT_R="${ENDPOINT_R:-6.0}"
+# 'relaxed' is the proposed support-relaxed objective; 'restricted' and
+# TRAIN_PERTURBATION > 0 reproduce the ablation variants.
+OBJECTIVE="${OBJECTIVE:-relaxed}"
+TRAIN_PERTURBATION="${TRAIN_PERTURBATION:-0.0}"
+# Accelerations of the masks used only to compute the per-slice
+# normalization, so training sees the scales the test sweep produces.
 R_MIN="${R_MIN:-2.0}"
 R_MAX="${R_MAX:-8.0}"
 # 8 iterations per optimizer step; 5k-iteration linear warmup, then cosine
@@ -63,6 +69,9 @@ CUDA_VISIBLE_DEVICES="$GPU" "$PYTHON" "$SCRIPT_DIR/train.py" \
     --num_res_blocks "$NUM_RES_BLOCKS" \
     --dropout "$DROPOUT" \
     --transition_steps "$TRANSITION_STEPS" \
+    --endpoint_R "$ENDPOINT_R" \
+    --objective "$OBJECTIVE" \
+    --train_perturbation "$TRAIN_PERTURBATION" \
     --r_min "$R_MIN" \
     --r_max "$R_MAX" \
     --lr "$LR" \
