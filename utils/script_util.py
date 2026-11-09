@@ -16,11 +16,15 @@ def model_and_transition_defaults():
         num_heads_upsample=-1,
         attention_resolutions="32,16",
         dropout=0.0,
-        transition_steps=10,
+        transition_steps=10,  # J, the number of retained finite transitions
         use_checkpoint=False,
         use_scale_shift_norm=True,
-        r_min=2.0,
-        r_max=8.0,
+        endpoint_R=6.0,  # acceleration of the endpoint state x_T
+        gamma=0.1,  # base inference perturbation rate (x rho_hat x (j-1)/J); 0 = deterministic
+        objective="relaxed",  # 'relaxed' (proposed) or 'restricted' (ablation)
+        train_perturbation=0.0,  # > 0 perturbs training inputs (ablation)
+        r_min=2.0,  # acceleration range of the masks used only for
+        r_max=8.0,  # the per-slice normalization at training
     )
 
 
@@ -35,6 +39,10 @@ def create_model_and_transition(
     transition_steps,
     use_checkpoint,
     use_scale_shift_norm,
+    endpoint_R,
+    gamma,
+    objective,
+    train_perturbation,
     r_min,
     r_max,
 ):
@@ -52,8 +60,12 @@ def create_model_and_transition(
     transition = create_finite_transition(
         transition_steps,
         image_size,
-        r_min,
-        r_max,
+        endpoint_R=endpoint_R,
+        gamma=gamma,
+        objective=objective,
+        train_perturbation=train_perturbation,
+        r_min=r_min,
+        r_max=r_max,
     )
     return model, transition
 
@@ -101,12 +113,20 @@ def create_model(
 def create_finite_transition(
     steps,
     image_size,
-    r_min,
-    r_max,
+    endpoint_R=6.0,
+    gamma=0.1,
+    objective="relaxed",
+    train_perturbation=0.0,
+    r_min=2.0,
+    r_max=8.0,
 ):
     return finite_transition.FlexMRI(
         steps=steps,
         image_size=image_size,
+        endpoint_R=endpoint_R,
+        gamma=gamma,
+        objective=objective,
+        train_perturbation=train_perturbation,
         r_min=r_min,
         r_max=r_max,
     )
