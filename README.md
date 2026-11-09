@@ -38,31 +38,61 @@ comparable to few-step baselines.
 
 | paper | code |
 |---|---|
-| recovery trajectory | `FlexMRI.recovery_trajectory` (`reconstruct` runs it to the end) |
-| task-aligned intermediate states | `FlexMRI.interpolate` |
-| the source state (zero-filled reconstruction) | `FlexMRI.zero_filled` |
-| the finite-transition predictor's objective | `FlexMRI.training_losses` |
-| perturbing a random subset of estimated coefficients | `FlexMRI._stochastic_frequency_dropout` |
-| reconciliation with the acquired measurements | `FlexMRI.data_consistency` |
+| retained states from progressive changes in k-space support | `FlexMRI.state_masks` |
+| support-relaxed finite-transition objective | `FlexMRI.training_losses` |
+| stochastic k-space perturbation `P_gamma` | `FlexMRI.perturb` |
+| data-consistency projection | `FlexMRI.data_consistency` |
+| few-step recovery (Algorithm 1) | `FlexMRI.recovery_steps` (`reconstruct` runs it to the end) |
+| the endpoint state at inference (zero-filled reconstruction) | `FlexMRI.zero_filled` |
 
-The trajectory interpolates between the data-consistent zero-filled
-reconstruction `x_zf` and the fully sampled image `x_0`, re-projecting onto the
-measurements at every state:
+**Retained states.** `Omega` is the support of the undersampled endpoint
+`x_J` (a variable-density mask at R = 6). Each coefficient outside `Omega` gets
+a priority `rho_i ~ U(0, 1)`, and state `t` keeps it while `rho_i >= t / J`:
 
 ```
-alpha_t = (t + 1) / T
-x_t     = DC( alpha_t * x_zf + (1 - alpha_t) * x_0 )
+m_t = Omega + { i not in Omega : rho_i >= t / J }
+x_t = F^-1[ m_t * F(x_0) ]
 ```
 
-The predictor regresses the whole remaining jump `x_0 - x_t`; sampling walks
-the same path with `x_0` replaced by its running estimate. Training and
-sampling share one representation (complex SENSE images), one normalization
-(99th percentile of the zero-filled magnitude, computed only from the
-measurements) and one mask generator.
+`x_0` is fully sampled, `x_J` is the endpoint, and the masks are nested. The
+states are binary changes in k-space support; nothing is interpolated.
 
-**`--transition_steps` must be the same at training and reconstruction.** It is
-not a per-acceleration tuning parameter: `t` indexes a point on the trajectory
-above and the time embedding is only ever trained at those values.
+**Training.** Transition `j` goes from `x_j` to `x_{j-1}`. Its target is the
+individual finite increment `x_{j-1} - x_j = F^-1[ eta_j * F(x_0) ]`, with
+`eta_j = m_{j-1} - m_j`, and the predictor `mu_theta(x_j, j-1)` is trained with
+the support-relaxed L1 loss `10 * || mu_theta(x_j, j-1) - (x_{j-1} - x_j) ||_1`
+(mean absolute error): the transition mask defines the target but is not
+applied to the error. The
+transition masks are redrawn for every sample, and the training inputs are the
+unperturbed states.
+
+**Recovery.** Starting from the zero-filled endpoint, each of the `J = 10`
+transitions perturbs the current estimate by dropping every k-space
+coefficient independently with probability `gamma_j`, adds the predicted
+transition, and re-imposes the acquired coefficients (hard data consistency):
+
+```
+gamma_j = gamma * rho_hat * (j-1) / J
+x~      = F^-1[ z * F(x_j) ],   z[i] ~ Bernoulli(1 - gamma_j)
+x_{j-1} = DC( x~ + mu_theta(x~, j-1) )
+```
+
+`rho_hat` is the unacquired fraction of k-space and `gamma = 0.1` is the base
+rate, so the perturbation is largest at the first transition and decays
+linearly to zero at the last.
+
+**Multi-coil data.** Images are SENSE coil-combined complex images (ESPIRiT
+maps), carried as two real channels, and data consistency uses the coil maps.
+Every slice is divided by the 99th percentile of its zero-filled magnitude,
+which needs only the undersampled data, so training and reconstruction share
+it.
+
+**Ablations.** `--objective restricted` evaluates the loss only on the
+coefficients in `eta_j`, `--train_perturbation <rate>` perturbs the training
+inputs on the same schedule, and `--gamma 0` makes recovery deterministic.
+
+**`--transition_steps` must be the same at training and reconstruction.** It
+is `J`; the states each `t` was trained on depend on it.
 
 ## Installation
 
@@ -114,15 +144,16 @@ Checkpoints are written to `exp/` every 25,000 iterations. The configuration:
 | | |
 |---|---|
 | iterations | 125,000 |
-| batch size | 2, with 8 iterations per optimizer step |
+| batch size | 1, with 8 iterations per optimizer step |
 | learning rate | 1e-4, 5k-iteration warmup, cosine decay to 1e-6 |
 | dropout / EMA | 0.3 / 0.9999 |
-| transitions | 10 |
-| training masks | a fresh mask per sample, at a random acceleration in `[2, 8]` |
+| transitions `J` | 10 |
+| endpoint state | variable-density mask at R = 6, redrawn per sample |
+| objective | support-relaxed L1 (x10) on the finite increment, unperturbed inputs |
 
 Every setting can be overridden from the environment (`GPU`, `PYTHON`,
 `SAVE_DIR`, `CONTRAST`, `NUM_WORKERS`, `BATCH_SIZE`, `STEPS`, `LR`,
-`TRANSITION_STEPS`, `R_MIN`, `R_MAX`, ...), and extra arguments go to
+`TRANSITION_STEPS`, `ENDPOINT_R`, `OBJECTIVE`, `TRAIN_PERTURBATION`, ...), and extra arguments go to
 `train.py`, e.g. `--max_volumes 4 --slices_per_volume 2` for a quick smoke run.
 
 To continue an interrupted run (weights, EMA, optimizer state and step count),
@@ -135,16 +166,17 @@ bash train.sh /path/to/M4Raw/ --resume_checkpoint exp/model025000.pt
 ## Reconstruction
 
 ```bash
-bash test.sh /path/to/M4Raw/ exp/model125000.pt
+bash test.sh /path/to/M4Raw/ exp/ema_0.9999_125000.pt
 ```
 
-`test.sh` sweeps `R_VALUES` (default `2 4 6 8`) x `CONTRASTS` (default
-`T1 T2 FLAIR`) and writes `rss<i>.npy`, `sense<i>.npy` and a PNG per slice to
-`SAVE_ROOT/<R>x_<contrast>` (default `results/<checkpoint dir name>`). RSS
-matches the `reconstruction_rss` ground truth; the complex SENSE image keeps
-phase (`--save_sense False` skips it, about 15 GB per full sweep). Use the raw
-weights (`model<step>.pt`): at `ema_rate` 0.9999 the EMA lags about 7k
-iterations behind.
+`test.sh` runs `J = 10` transitions with base perturbation rate `GAMMA`
+(default 0.1; `SEED` fixes the perturbations), sweeping `R_VALUES`
+(default `2 4 6 8`) x `CONTRASTS` (default `T1 T2 FLAIR`), and writes `rss<i>.npy`, `sense<i>.npy` and a PNG per slice to
+`SAVE_ROOT/<R>x_<contrast>` (default `results/<checkpoint dir name>`). The
+complex SENSE image (`sense<i>.npy`) is what `evaluate.py` scores; the RSS
+image follows the convention of M4Raw's `reconstruction_rss`. A full sweep
+takes about 40 GB. Reconstruct with the EMA weights (`ema_0.9999_<step>.pt`);
+the raw weights (`model<step>.pt`) are saved for resuming training.
 
 ## Evaluation
 
@@ -152,9 +184,12 @@ iterations behind.
 python evaluate.py --data_path /path/to/M4Raw/ --results results/exp
 ```
 
-PSNR and SSIM against `reconstruction_rss` for every acceleration and
-contrast, with zero-filling as the baseline. Masks are regenerated with the
-seeds `sample.py` used.
+PSNR and SSIM for every acceleration and contrast, with zero-filling as the
+baseline, using the evaluation protocol of the paper's fastMRI experiments: the
+magnitude of the reconstructed SENSE image is compared with the magnitude of
+the coil-combined fully sampled image (same ESPIRiT maps), both divided by
+their mean, with the background (outside the coil-map support) set to zero.
+Masks are regenerated with the seeds `sample.py` used.
 
 ## Files
 
@@ -164,7 +199,7 @@ espirit.py               sigpy ESPIRiT coil sensitivity estimation
 coil_map_cache.py        per-volume disk cache for the ESPIRiT maps
 precompute_coil_maps.py  fill that cache for a split
 train.py  sample.py      training / reconstruction entry points
-evaluate.py              PSNR / SSIM against reconstruction_rss
+evaluate.py              PSNR / SSIM (fastMRI evaluation protocol)
 train.sh  test.sh        the training recipe / the test sweep
 figures/                 the overview figure above
 utils/
