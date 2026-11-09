@@ -52,6 +52,11 @@ def main():
     model.to(device)
     model.eval()
 
+    # Recovery is stochastic (the k-space perturbation before each
+    # transition); a fixed seed makes a run reproducible.
+    th.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
     with th.no_grad():
         for index in range(0, len(kspaces)):
 
@@ -67,15 +72,13 @@ def main():
             total_time = time.time() - start_time
             print(f"total time: {total_time:.4f}")
 
-            # RSS is the convention reconstruction_rss uses, so it is what
-            # evaluate.py scores. The complex SENSE image (sense*.npy,
-            # [2, H, W] real/imag, ~15 GB per full sweep) is for comparisons
-            # that need phase; --save_sense False skips it.
+            # The complex SENSE image (sense*.npy, [2, H, W] real/imag) is
+            # what evaluate.py scores. The RSS image (rss*.npy) follows the
+            # convention of M4Raw's reconstruction_rss.
+            np.save(os.path.join(args.save_path, f"sense{index}.npy"),
+                    sense_img[0].float().cpu().numpy())
             rss_np = rss_img[0].contiguous().cpu().numpy()
             np.save(os.path.join(args.save_path, f"rss{index}.npy"), rss_np)
-            if args.save_sense:
-                np.save(os.path.join(args.save_path, f"sense{index}.npy"),
-                        sense_img[0].float().cpu().numpy())
 
             plt.imsave(
                 os.path.join(args.save_path, f"image_{index}.png"),
@@ -104,7 +107,7 @@ def create_argparser():
         slices_per_volume=0,  # 0 = every slice
         coil_map_cache="",  # empty = $FLEX_MRI_COIL_MAP_CACHE or <data_path>/coil_maps_cache
         use_coil_map_cache=True,
-        save_sense=True,  # also save the complex SENSE image
+        seed=0,  # seed for the inference-time k-space perturbations
     )
     defaults.update(model_and_transition_defaults())
     parser = argparse.ArgumentParser()
